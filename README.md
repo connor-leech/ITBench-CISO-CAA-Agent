@@ -1,36 +1,28 @@
 # CISO Agent
 
-The **CISO Agent** (Chief Information Security Officer Agent) automates security and compliance assessments for ITBench scenarios. It leverages large language models (LLMs) to interpret compliance goals, generate policies (e.g., Kyverno, OPA Rego), deploy them, and verify enforcement. The agent streamlines compliance processes, integrates with GitOps workflows, and uses available tools to develop actionable plans aligned with high-level goals.
+CISO (Chief Information Security Officer) agents automate compliance assessments. They generate policies (e.g., Kyverno, OPA Rego) from natural language prompts, automate evidence collection, integrate with GitOps workflows, and deploy policies to validate compliance. These capabilities streamline compliance processes and enhance operational efficiency. The agents are built using the open-source frameworks [CrewAI](https://github.com/crewAIInc/crewAI) and [LangGraph](https://github.com/langchain-ai/langgraph).
 
-The CISO Agent is built using the open-source frameworks [CrewAI](https://github.com/joaomdmoura/crewAI) and [LangGraph](https://github.com/langchain-ai/langgraph).
-
----
-
-## 🔧 Prerequisites
+## Prerequisites
 
 - Access to an OpenAI-compatible LLM service  
-  (tested with IBM watsonx.ai, OpenAI, Azure OpenAI)
-- A running [ITBench scenario](https://github.com/IBM/ITBench-Scenarios)  
+  (tested with IBM watsonx.ai, OpenAI, and Azure OpenAI)
+- A deployed [ITBench scenario](https://github.com/IBM/ITBench-Scenarios)  
   (requires 1 Kubernetes cluster and/or 1 RHEL host)
 - `python` (tested with 3.11)
 - `docker` or `podman` (tested with Docker 26.1.0, Podman 5.1.2)
 
----
-
-## 🚀 Getting started
+## Getting started
 
 ### 1. Deploy a scenario
 
-Follow the [CISO scenario guide](https://github.com/IBM/ITBench-Scenarios/tree/main/ciso#readme) to set up the environment.
-
-Run:
+Follow the [CISO scenario guide](https://github.com/IBM/ITBench-Scenarios/tree/main/ciso#readme):
 
 ```bash
 make deploy_bundle
 make inject_fault
 ```
 
-Then retrieve the goal (prompt input for the agent):
+Then get the scenario goal for the agent:
 
 ```bash
 make get 2>/dev/null | jq -r .goal_template
@@ -38,7 +30,7 @@ make get 2>/dev/null | jq -r .goal_template
 
 Example goal output:
 
-```
+```text
 I would like to check if the following condition is satisfied, given a Kubernetes cluster with `kubeconfig.yaml`:
 Minimize the admission of containers wishing to share the host network namespace.
 
@@ -51,120 +43,81 @@ If deploying the policy fails and you can fix the issue, do so and try again.
 The cluster's kubeconfig is at `{{ kubeconfig }}`.
 ```
 
-Note: Keep this goal text — you will need it in step 4.
+Save this goal text for later.
 
----
-
-### 2. Clone the repository
+### 2. Clone this repository
 
 ```bash
-git clone https://github.com/IBM/itbench-ciso-caa-agent.git
-cd itbench-ciso-caa-agent
+git clone https://github.com/IBM/it-bench-ciso-caa-agent.git
+cd ciso-agent
 ```
-
----
 
 ### 3. Build the agent container
 
-Build the image (using Docker or Podman):
-
 ```bash
 docker build -f Dockerfile -t ciso-agent:latest .
-# or
+# or, if using podman:
 podman build -f Dockerfile -t ciso-agent:latest .
 ```
 
-You only need to rebuild if you update the source code.
+### 4. Configure `.env` with LLM credentials
 
----
+Create a `.env` file using your LLM service credentials:
 
-### 4. Configure LLM credentials
-
-The agent supports any provider compatible with [LiteLLM](https://docs.litellm.ai/). Create a `.env` file:
-
-#### i. IBM watsonx.ai
-
+- **IBM watsonx.ai**
 ```env
-LLM_BASE_URL=<endpoint_url>
-LLM_API_KEY=<your_api_key>
-LLM_MODEL_NAME=ibm/granite-3-8b-instruct
-WATSONX_PROJECT_ID=<your_project_id>
+LLM_BASE_URL=<ENDPOINT_URL>
+LLM_API_KEY=<YOUR_API_KEY>
+LLM_MODEL_NAME=<MODEL_NAME>
+WATSONX_PROJECT_ID=<YOUR_PROJECT_ID>
 ```
 
-#### ii. OpenAI
-
+- **OpenAI**
 ```env
-LLM_API_KEY=<your_api_key>
-LLM_MODEL_NAME=gpt-4o-mini
-# LLM_BASE_URL optional for OpenAI
+LLM_API_KEY=<YOUR_API_KEY>
+LLM_MODEL_NAME=<MODEL_NAME>
 ```
 
-#### iii. Azure OpenAI
-
+- **Azure OpenAI**
 ```env
-LLM_BASE_URL=<endpoint_url>
-LLM_API_KEY=<your_api_key>
-LLM_MODEL_NAME=<model_name>  # Ignored, set via endpoint
-LLM_PARAMS='{"api-version": "<version>"}'
+LLM_BASE_URL=<ENDPOINT_URL>
+LLM_API_KEY=<YOUR_API_KEY>
+LLM_MODEL_NAME=<MODEL_NAME>
+LLM_PARAMS='{"api-version": "<API_VERSION>"}'
 ```
-
-You can place the `.env` file anywhere, as long as it can be mounted into the container later.
-
----
 
 ### 5. Run the agent
 
 Prepare:
 
-- `<PATH/TO/WORKDIR>` — Directory containing the scenario context (e.g., `kubeconfig.yaml`)
-- `<PATH/TO/.env>` — Path to your `.env` file
-- `<GOAL_TEXT>` — Goal output from step 1 (with `{{ kubeconfig }}` replaced)
+- `<WORKDIR>`: Contains scenario files (`kubeconfig.yaml`, etc.)
+- `<DOT_ENV>`: Path to your `.env`
+- `<GOAL_TEXT>`: Scenario goal (replace `{{ kubeconfig }}` with `/tmp/agent/kubeconfig.yaml`)
 
-Run:
+Then run:
 
 ```bash
 docker run --rm -ti \
-  -v <PATH/TO/WORKDIR>:/tmp/agent \
-  -v <PATH/TO/.env>:/etc/ciso-agent/.env \
+  -v <WORKDIR>:/tmp/agent \
+  -v <DOT_ENV>:/etc/ciso-agent/.env \
   ciso-agent:latest \
   python src/ciso_agent/main.py \
   --goal '<GOAL_TEXT>' \
   --auto-approve
 ```
 
-📌 Make sure the goal ends with:
+Replace `docker` with `podman` if needed.
 
-```
-The cluster's kubeconfig is at `/tmp/agent/kubeconfig.yaml`.
-You can use `/tmp/agent` as your workdir.
-```
+The agent logs will appear similar to:
 
-If using Podman, replace `docker` with `podman`.
+![Start](img/agent_log_example_beginning.png)  
+(Agent starting)
 
----
+![Result](img/agent_log_example_result.png)  
+(Agent finished)
 
-### 6. Example logs
+The run typically takes under 5 minutes.
 
-The agent will output logs like:
+### 6. Evaluation
 
-![Start](img/agent_log_example_beginning.png)
-
-When the task is complete:
-
-![Result](img/agent_log_example_result.png)
-
-Average run time is under 5 minutes depending on LLM latency.
-
----
-
-## ✅ Evaluation
-
-After the agent completes its work, evaluate the results using the scenario’s instructions.
-
-Refer to the [CISO scenarios README](https://github.com/IBM/ITBench-Scenarios/tree/main/ciso#readme) for details.
-
----
-
-## 📝 License
-
-This project is licensed under the [Apache License 2.0](LICENSE).
+After the agent finishes, evaluate results using the scenario’s instructions [here](https://github.com/IBM/ITBench-Scenarios/tree/main/ciso#readme).
